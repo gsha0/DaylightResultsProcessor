@@ -1,16 +1,19 @@
 # sDA WPD Processor
 
-A single-file Python tool that batch-processes RADIANCE daylight simulation output files (`*_SDA.wpd`) and writes the results to a CSV.
+Python tools for batch-processing RADIANCE daylight simulation output files (`*_SDA.wpd`) and post-processing the results.
 
-## What it does
+## Workflow
 
-Scans the folder it lives in for files named `*_SDA.wpd`, extracts the zone ID, room name, room area (from an optional `RoomArea.csv`), sDA percentage, and the 10 MMA values from the first `[Sim]` block of each file, and writes everything to a timestamped CSV in the same folder.
+1. **`process_sda.py`** — extracts raw sDA data from `.wpd` files into a timestamped CSV.
+2. **`process_csv.py`** — post-processes that CSV to add a floor level column and generate a weighted-average sDA summary.
 
 ## Requirements
 
 Python 3.x — no third-party dependencies.
 
-## Usage
+---
+
+## Step 1: process_sda.py
 
 Place `process_sda.py` in the same folder as your `*_SDA.wpd` files, then run:
 
@@ -18,7 +21,7 @@ Place `process_sda.py` in the same folder as your `*_SDA.wpd` files, then run:
 python3 process_sda.py
 ```
 
-## Output
+### Output
 
 A CSV file named `YYYY-MM-DD_sDA_HHMMSS.csv` is created in the same folder.
 
@@ -31,7 +34,7 @@ A CSV file named `YYYY-MM-DD_sDA_HHMMSS.csv` is created in the same folder.
 | MMA_1 … MMA_10 | The 10 MMA values from the first `[Sim]` block |
 | Error | Empty on success; error message if parsing failed |
 
-## RoomArea.csv (optional)
+### RoomArea.csv (optional)
 
 Place a file named `RoomArea.csv` in the same folder to populate the `Room Area` column. The file must have a `Space ID` column and a floor area column (any column whose name contains "area" is detected automatically). Example:
 
@@ -43,7 +46,7 @@ B100023C,18.0
 
 If `RoomArea.csv` is not present, a warning is printed and the `Room Area` column is left blank for all rows.
 
-## WPD file format
+### WPD file format
 
 The script expects plain-text `.wpd` files with this structure:
 
@@ -61,6 +64,52 @@ The script expects plain-text `.wpd` files with this structure:
 
 `sDA Pct` is calculated from the data matrix: sensor points with value `1.00` divided by all points excluding `-1.00` (inactive sensors).
 
-## Error handling
+### Error handling
 
 If a file cannot be parsed, a warning is printed to the console and the row in the CSV will contain the filename in the ZoneID column and a description in the Error column. Processing continues for all remaining files.
+
+---
+
+## Step 2: process_csv.py
+
+Run from the same folder after `process_sda.py` has produced a CSV:
+
+```bash
+python3 process_csv.py
+```
+
+By default it auto-detects the most-recently-modified `*_sDA_*.csv` in the folder. You can also set explicit paths at the top of the file.
+
+### Configuration
+
+Edit the block at the top of `process_csv.py` for each project:
+
+```python
+INPUT_CSV  = ""   # leave blank to auto-detect latest *_sDA_*.csv
+OUTPUT_CSV = ""   # leave blank to auto-name as <input>_processed.csv
+
+LEVEL_CODES = ["GF", "MZ", "L1", "L2", "L3", "L4"]
+```
+
+`LEVEL_CODES` is matched against Room Name using whole-word boundaries (`L1` will not match `L10` or `AL1`). Add or remove codes to suit your project's floor naming convention.
+
+### Outputs
+
+**`<input>_processed.csv`** — all original columns plus a `Level` column inserted after `Room Area`:
+
+| Level value | Meaning |
+|---|---|
+| `GF`, `L1`, etc. | Exactly one level code matched in Room Name |
+| `Other` | No level code matched |
+| `Multi` | Two or more level codes matched (needs manual review) |
+
+**`<input>_processed_summary.csv`** — area-weighted average sDA per floor and for the whole building:
+
+| Column | Description |
+|---|---|
+| Level | Floor code, `WHOLE BUILDING`, or `NOTE` |
+| Weighted sDA | `SUMPRODUCT(area, sDA) / SUM(area)` |
+| Total Area (m²) | Sum of room areas used in the calculation |
+| Room Count | Number of rooms included |
+
+`Other` and `Multi` rooms are excluded from per-floor rows but included in the whole-building calculation. Rooms with a blank `Room Area` are skipped from all calculations with a console warning. The final `NOTE` row records the count of `Other` and `Multi` rooms.
