@@ -1,6 +1,6 @@
 # sDA WPD Processor
 
-Python tools for batch-processing RADIANCE daylight simulation output files (`*_SDA.wpd`) and post-processing the results.
+Python tools for batch-processing RADIANCE daylight simulation output files (`*_SDA.wpd`) and post-processing the results. This tool is authored by Claude. 
 
 ## Workflow
 
