@@ -20,6 +20,53 @@ from datetime import datetime
 
 
 # ---------------------------------------------------------------------------
+# Room Area Lookup
+# ---------------------------------------------------------------------------
+
+def load_room_area_lookup(folder):
+    """
+    Load Room Area data from RoomArea.csv in the given folder.
+
+    Returns a dict mapping Space ID -> Floor Area value, or None if file not found.
+    Auto-detects the Floor Area column (looks for "Floor Area" pattern).
+    """
+    room_area_path = os.path.join(folder, "RoomArea.csv")
+
+    if not os.path.exists(room_area_path):
+        return None
+
+    lookup = {}
+    try:
+        with open(room_area_path, "r", encoding="utf-8-sig", errors="replace") as f:
+            reader = csv.DictReader(f)
+
+            # Auto-detect the Floor Area column (looks for "Floor Area" in header)
+            if not reader.fieldnames:
+                return lookup
+
+            floor_area_col = None
+            for col in reader.fieldnames:
+                if "floor area" in col.lower() or "area" in col.lower():
+                    floor_area_col = col
+                    break
+
+            if not floor_area_col:
+                # Fallback: use second column if we can't find it by name
+                floor_area_col = reader.fieldnames[1] if len(reader.fieldnames) > 1 else None
+
+            if floor_area_col:
+                for row in reader:
+                    space_id = row.get("Space ID", "").strip()
+                    area_value = row.get(floor_area_col, "").strip()
+                    if space_id and area_value:
+                        lookup[space_id] = area_value
+    except Exception:
+        pass
+
+    return lookup
+
+
+# ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
 
@@ -100,7 +147,11 @@ def main():
     timestamp = datetime.now().strftime("%Y-%m-%d_sDA_%H%M%S")
     csv_path = os.path.join(folder, f"{timestamp}.csv")
 
-    fieldnames = ["ZoneID", "Room Name", "sDA Pct"] + [f"MMA_{i}" for i in range(1, 11)] + ["Error"]
+    # Load Room Area lookup
+    room_area_lookup = load_room_area_lookup(folder)
+    room_area_missing = room_area_lookup is None
+
+    fieldnames = ["ZoneID", "Room Name", "Room Area", "sDA Pct"] + [f"MMA_{i}" for i in range(1, 11)] + ["Error"]
 
     rows = []
     error_count = 0
@@ -109,6 +160,11 @@ def main():
         filepath = os.path.join(folder, filename)
         try:
             data = parse_wpd_file(filepath)
+            # Look up Room Area by ZoneID
+            room_area_value = ""
+            if room_area_lookup is not None and data.get("ZoneID") in room_area_lookup:
+                room_area_value = room_area_lookup[data["ZoneID"]]
+            data["Room Area"] = room_area_value
             data["Error"] = ""
             rows.append(data)
             print(f"  OK  {filename}")
@@ -118,6 +174,7 @@ def main():
             rows.append({
                 "ZoneID": filename,
                 "Room Name": "",
+                "Room Area": "",
                 "sDA Pct": "",
                 **{f"MMA_{i}": "" for i in range(1, 11)},
                 "Error": str(exc),
@@ -129,6 +186,8 @@ def main():
         writer.writerows(rows)
 
     print(f"\nProcessed {len(wpd_files)} file(s), {error_count} error(s).")
+    if room_area_missing:
+        print("WARNING: RoomArea.csv not found in current folder")
     print(f"Output: {csv_path}")
 
 
